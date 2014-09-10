@@ -6,6 +6,7 @@ if [[ -n "$CONF" ]]; then
     EXTRA_ARGS="--config $CONF"
 fi;
 
+# Activate KSK in READY state (or waiting for ds-seen)
 ods-ksmutil $EXTRA_ARGS key list --verbose 2>/dev/null|grep KSK|grep "waiting for ds-seen"|sed -re 's/\t+/ /g;s/ +/ /g'|while read K; do 
     DOMAIN=`echo $K|cut -d ' ' -f 1`;
     echo -n "$DOMAIN : ";
