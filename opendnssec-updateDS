@@ -1,0 +1,8 @@
+#!/bin/bash
+
+# This script receives from STDIN the new KSK for the rollover in the following form : 
+# <zone> <ttl> <class> <type> DNSKEY <flags> <protocol> <algorithm> <public key>
+
+# just push notification to a tempory file
+cat >> /tmp/rollover
+
