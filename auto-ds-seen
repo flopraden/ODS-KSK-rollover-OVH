@@ -1,0 +1,16 @@
+#!/bin/bash
+
+ods-ksmutil key list --verbose 2>/dev/null|grep KSK|grep "waiting for ds-seen"|sed -re 's/\t+/ /g;s/ +/ /g'|while read K; do 
+    DOMAIN=`echo $K|cut -d ' ' -f 1`;
+    echo -n "$DOMAIN : ";
+    CKAID=`echo $K|cut -d ' ' -f 7`;
+    ID=`echo $K|cut -d ' ' -f 9`
+    while read D; do 
+	DD=`echo $D|cut -d ' ' -f 8`;
+	if dig $DOMAIN DS|grep -qi "$DD" >/dev/null 2>&1; then
+	    echo -n "Seen DS \"$DD\" id ($ID / $CKAID)"
+	    ods-ksmutil key ds-seen --zone $DOMAIN --cka_id $CKAID >/dev/null 2>&1
+	fi
+    done <<< "`ods-ksmutil key export --zone $DOMAIN --keystate READY --keytype KSK --ds |grep $ID|sed -re 's/\t+/ /g;s/ +/ /g'`"
+    echo "."
+done

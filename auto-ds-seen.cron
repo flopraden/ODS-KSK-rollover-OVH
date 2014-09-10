@@ -1,0 +1,1 @@
+*/15 * * * *     opendnssec  date >> /var/log/auto-ds-seen.log && /PATH/TO/SCRIPT/auto-ds-seen >> /var/log/auto-ds-seen.log
