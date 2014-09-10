@@ -5,12 +5,14 @@ NIC="OVH-NICHANDLE"
 PASS="THESUPERSECRETPASSWORD"
 DOMAINS="DOMAIN1 DOMAIN2"
 
+source .config
+
 # Login 
 curl -k -c $COOKIE --compressed -i -H 'Accept: text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8' -H 'Host: www.ovh.com' -X POST -d "session_nic=${NIC}&session_password=${PASS}&language=en&Connexion=Connexion" https://www.ovh.com/managerv3/login.pl  >/dev/null 2>&1
 
 
 for DOMAIN in $DOMAINS; do 
-
+    echo -n "$DOMAIN: "
     NUM=1
     FormData=""
     for type in READY ACTIVE; do 
@@ -24,13 +26,9 @@ for DOMAIN in $DOMAINS; do
 	    KeyPubk=$(perl -MURI::Escape -e 'print uri_escape($ARGV[0]);' "`echo $KEY|cut -d ' ' -f 8`")
 	    KeyTag=$(perl -MURI::Escape -e 'print uri_escape($ARGV[0]);' "`echo $KEY|cut -d ' ' -f 10`")
 
-	    # KeyFlag=`echo $KEY|cut -d ' ' -f 5`
-	    # KeyAlgo=`echo $KEY|cut -d ' ' -f 7`
-	    # KeyPubk=`echo $KEY|cut -d ' ' -f 8`
-	    # KeyTag=`echo $KEY|cut -d ' ' -f 10`
-
 	    FormData="${FormData}keyTag_${NUM}=${KeyTag}&flag_${NUM}=${KeyFlag}&algoId_${NUM}=${KeyAlgo}&pubKey_${NUM}=${KeyPubk}&"
 	    NUM=$((NUM+1))
+	    echo -n "."
         done <<< "`ods-ksmutil key export --zone $DOMAIN --keytype KSK --keystate $type |grep $DOMAIN|sed -re 's/(\t|;|=)+/ /g;s/ +/ /g'`";
     done;
     
@@ -38,7 +36,7 @@ for DOMAIN in $DOMAINS; do
     
     # Save the DNSKEY
     curl -k -b $COOKIE --compressed -i 'https://www.ovh.com/managerv3/hosting-domain-registry-ds.pl' -H 'Host: www.ovh.com' -H 'Accept: text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8' -H 'Content-Type: application/x-www-form-urlencoded' --data "${FormData}" >/dev/null 2>&
-    
+    echo " DONE."
 done;
 
 rm -f "$COOKIE"
