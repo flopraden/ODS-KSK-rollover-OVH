@@ -10,6 +10,6 @@ TODO:
 
  * Check if a change is needed
  * Integrate with OpenDNSSEC KSK rollover mechanism
- * specify ods-ksmutil config file
+
 
 

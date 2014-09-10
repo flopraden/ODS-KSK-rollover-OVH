@@ -7,6 +7,11 @@ DOMAINS="DOMAIN1 DOMAIN2"
 
 source .config
 
+
+if [[ -n "$CONF" ]]; then
+    EXTRA_ARGS="--config $CONF"
+fi;
+
 # Login 
 curl -k -c $COOKIE --compressed -i -H 'Accept: text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8' -H 'Host: www.ovh.com' -X POST -d "session_nic=${NIC}&session_password=${PASS}&language=en&Connexion=Connexion" https://www.ovh.com/managerv3/login.pl  >/dev/null 2>&1
 
@@ -29,7 +34,7 @@ for DOMAIN in $DOMAINS; do
 	    FormData="${FormData}keyTag_${NUM}=${KeyTag}&flag_${NUM}=${KeyFlag}&algoId_${NUM}=${KeyAlgo}&pubKey_${NUM}=${KeyPubk}&"
 	    NUM=$((NUM+1))
 	    echo -n "."
-        done <<< "`ods-ksmutil key export --zone $DOMAIN --keytype KSK --keystate $type |grep $DOMAIN|sed -re 's/(\t|;|=)+/ /g;s/ +/ /g'`";
+        done <<< "`ods-ksmutil $EXTRA_ARGS key export --zone $DOMAIN --keytype KSK --keystate $type |grep $DOMAIN|sed -re 's/(\t|;|=)+/ /g;s/ +/ /g'`";
     done;
     
     FormData="${FormData}language=en&domain=${DOMAIN}&hostname=${DOMAIN}&service=${DOMAIN}&lastxsldoc=hosting%2Fdomain%2Fhosting-domain-registry-ds-modify.xsl&csid=0&todo=DomainDsUpdate&xsldoc=hosting%2Fdomain%2Fhosting-domain-registry-ds.xsl"
