@@ -20,7 +20,8 @@ for DOMAIN in $DOMAINS; do
     echo -n "$DOMAIN: "
     NUM=1
     FormData=""
-    for type in READY ACTIVE; do 
+    # List key by priority
+    for type in PUBLISH READY ACTIVE; do 
     	while read KEY; do 
 	    
 	    if [ "${NUM}" -gt 5 ]; then 
