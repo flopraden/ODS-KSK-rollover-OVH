@@ -16,10 +16,16 @@ fi;
 curl -k -c $COOKIE --compressed -i -H 'Accept: text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8' -H 'Host: www.ovh.com' -X POST -d "session_nic=${NIC}&session_password=${PASS}&language=en&Connexion=Connexion" https://www.ovh.com/managerv3/login.pl  >/dev/null 2>&1
 
 
+
 for DOMAIN in $DOMAINS; do 
     echo -n "$DOMAIN: "
     NUM=1
+    CHANGE=0
     FormData=""
+
+    # get DNSSEC Key already registred
+    KEYLIST=`curl -k -b $COOKIE --compressed -i  "https://www.ovh.com/managerv3/hosting-domain-registry-ds.pl?xsldoc=hosting%2Fdomain%2Fhosting-domain-registry-ds-modify.xsl&language=fr&domain=${DOMAIN}&hostname=${DOMAIN}&service=${DOMAIN}&lastxsldoc=hosting%2Fdomain%2Fhosting-domain-registry-ds.xsl&csid=0&typeFreeHosting=" -H 'Host: www.ovh.com'  -H 'Accept: text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8' 2>/dev/null |tr -d '\n'`
+    
     # List key by priority
     for type in PUBLISH READY ACTIVE; do 
     	while read KEY; do 
@@ -31,18 +37,26 @@ for DOMAIN in $DOMAINS; do
 	    KeyAlgo=$(perl -MURI::Escape -e 'print uri_escape($ARGV[0]);' "`echo $KEY|cut -d ' ' -f 7`")
 	    KeyPubk=$(perl -MURI::Escape -e 'print uri_escape($ARGV[0]);' "`echo $KEY|cut -d ' ' -f 8`")
 	    KeyTag=$(perl -MURI::Escape -e 'print uri_escape($ARGV[0]);' "`echo $KEY|cut -d ' ' -f 10`")
-
-	    FormData="${FormData}keyTag_${NUM}=${KeyTag}&flag_${NUM}=${KeyFlag}&algoId_${NUM}=${KeyAlgo}&pubKey_${NUM}=${KeyPubk}&"
-	    NUM=$((NUM+1))
-	    echo -n "."
+	    if echo "$KEYLIST" |grep -qi "${KeyPubk}"; then
+		echo -n "-";
+	    else
+		FormData="${FormData}keyTag_${NUM}=${KeyTag}&flag_${NUM}=${KeyFlag}&algoId_${NUM}=${KeyAlgo}&pubKey_${NUM}=${KeyPubk}&"
+		NUM=$((NUM+1))
+		echo -n ".";
+		CHANGE=$((CHANGE+1))
+	    fi;
         done <<< "`ods-ksmutil $EXTRA_ARGS key export --zone $DOMAIN --keytype KSK --keystate $type |grep $DOMAIN|sed -re 's/(\t|;|=)+/ /g;s/ +/ /g'`";
     done;
     
-    FormData="${FormData}language=en&domain=${DOMAIN}&hostname=${DOMAIN}&service=${DOMAIN}&lastxsldoc=hosting%2Fdomain%2Fhosting-domain-registry-ds-modify.xsl&csid=0&todo=DomainDsUpdate&xsldoc=hosting%2Fdomain%2Fhosting-domain-registry-ds.xsl"
-    
-    # Save the DNSKEY
-    curl -k -b $COOKIE --compressed -i 'https://www.ovh.com/managerv3/hosting-domain-registry-ds.pl' -H 'Host: www.ovh.com' -H 'Accept: text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8' -H 'Content-Type: application/x-www-form-urlencoded' --data "${FormData}" >/dev/null 2>&
-    echo " DONE."
+    if [[ $CHANGE -gt 0 ]]; then 
+	FormData="${FormData}language=en&domain=${DOMAIN}&hostname=${DOMAIN}&service=${DOMAIN}&lastxsldoc=hosting%2Fdomain%2Fhosting-domain-registry-ds-modify.xsl&csid=0&todo=DomainDsUpdate&xsldoc=hosting%2Fdomain%2Fhosting-domain-registry-ds.xsl"
+	
+	# Save the DNSKEY
+	curl -k -b $COOKIE --compressed -i 'https://www.ovh.com/managerv3/hosting-domain-registry-ds.pl' -H 'Host: www.ovh.com' -H 'Accept: text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8' -H 'Content-Type: application/x-www-form-urlencoded' --data "${FormData}" >/dev/null 2>&
+	echo " DONE."
+    else
+	echo " NO CHANGE."
+    fi
 done;
 
 rm -f "$COOKIE"
