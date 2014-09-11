@@ -15,7 +15,4 @@ Little bash script to automatically sync the KSK rollover in OVH console panel
 
 TODO:
 
- * Integrate with OpenDNSSEC KSK rollover mechanism
-
-
-
+ * Check the input of the DelegationSignerSubmitCommand to get the KeyFlag : actually, class input is used for KeyTag...
