@@ -12,7 +12,3 @@ Little bash script to automatically sync the KSK rollover in OVH console panel
      <RolloverNotification>P14D</RolloverNotification>  <!-- get notification 14D about the rollover --!>
      <DelegationSignerSubmitCommand>/PATH/TO/SCRIPT/opendnssec-updateDS</DelegationSignerSubmitCommand>
   </Enforcer>
-
-TODO:
-
- * Check the input of the DelegationSignerSubmitCommand to get the KeyFlag : actually, class input is used for KeyTag...

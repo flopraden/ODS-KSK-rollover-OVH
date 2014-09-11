@@ -45,7 +45,7 @@ for DOMAIN in $DOMAINS; do
 		echo -n ".";
 		CHANGE=$((CHANGE+1))
 	    fi;
-        done <<< "`ods-ksmutil $EXTRA_ARGS key export --zone $DOMAIN --keytype KSK --keystate $type |grep $DOMAIN|sed -re 's/(\t|;|=)+/ /g;s/ +/ /g'`";
+        done <<< "`ods-ksmutil $EXTRA_ARGS key export --zone $DOMAIN --keytype KSK --keystate $type |grep -E \"^$DOMAIN\"|sed -re 's/(\t|;|=)+/ /g;s/ +/ /g'`";
     done;
     
     if [[ $CHANGE -gt 0 ]]; then 

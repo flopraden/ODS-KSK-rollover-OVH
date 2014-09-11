@@ -28,12 +28,15 @@ KEYLIST=`curl -k -b $COOKIE --compressed -i  "https://www.ovh.com/managerv3/host
 MKeyFlag=`echo -n $IN |cut -d ' ' -f 6`
 MKeyAlgo=`echo -n $IN |cut -d ' ' -f 8`
 MKeyPubk=`echo -n $IN |cut -d ' ' -f 9`
-MKeyTag=`echo -n $IN |cut -d ' ' -f 3`
 
 if echo "$KEYLIST" |grep -qi "${MKeyPubk}"; then
     # Already in OVH
     exit 2
 fi
+
+
+# We could calculate it from all parameters : see http://www.v13.gr/blog/?p=239
+MKeyTag=`ods-ksmutil $EXTRA_ARGS key export --zone $DOMAIN --keytype KSK |grep "${MKeyPubk}"|sed -re 's/(\t|;|=)+/ /g;s/ +/ /g'|cut -d ' ' -f 10`
 
 
 DONE="0"
