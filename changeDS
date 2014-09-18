@@ -1,11 +1,13 @@
 #!/bin/bash
 
+POVH=/PATH/TO/SCRIPT
+
 COOKIE=`mktemp`
 NIC="OVH-NICHANDLE"
 PASS="THESUPERSECRETPASSWORD"
 DOMAINS="DOMAIN1 DOMAIN2"
 
-source .config
+source $POVH/.config
 
 
 if [[ -n "$CONF" ]]; then
@@ -58,5 +60,8 @@ for DOMAIN in $DOMAINS; do
 	echo " NO CHANGE."
     fi
 done;
+
+#LOGOUT
+curl -k -b $COOKIE --compressed -i 'https://www.ovh.com/managerv3/logout.pl?language=fr&hostname=&lastxsldoc=sub-home.xsl&csid=0' -H 'Accept: text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8' -H 'Accept-Encoding: gzip, deflate' -H 'Host: www.ovh.com' 2>/dev/null >/dev/null
 
 rm -f "$COOKIE"
