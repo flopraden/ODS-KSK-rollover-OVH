@@ -1,6 +1,6 @@
 [submodule "lib/ods-api"]
 	path = lib/ods-api
-	url = GitHub:flopraden/ods-api.git
+	url = https://github.com/flopraden/ods-api.git
 [submodule "lib/ovh-api"]
 	path = lib/ovh-api
-	url = GitHub:flopraden/python-ovh.git
+	url = https://github.com/flopraden/python-ovh.git
