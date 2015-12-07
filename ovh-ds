@@ -1,0 +1,344 @@
+#!/usr/bin/env python3
+# -*- encoding: utf-8 -*-
+
+import ovh
+import argparse
+import subprocess
+import re
+import logging
+from util import calc_keyid,calc_ds
+import sys
+import time
+
+####### TODO #######
+# Handle exception : ovh.exceptions.APIError: Operation already scheduled
+# Compute KeyTag & DS to permit to add DS key without using ods-ksmutil => re-add 'add' action
+# Add action "delete" to delete specifics keys without ods-ksmutil
+
+
+## Consumer Key
+ConsumerKey =None
+
+###### Arg Parser
+parser = argparse.ArgumentParser(description='OpenDNSSEC managment utility to add/delete DS from OVH.')
+
+##### OVH args
+parser.add_argument('--consumer-key', '-c', nargs='?', default=ConsumerKey, help='Consumer Key of OVH')
+parser.add_argument('--application-key', '-a', nargs='?', help='Application Key of OVH')
+parser.add_argument('--application-secret','-s', nargs='?',  help='Application Secret of OVH')
+
+##### App Args
+parser.add_argument('--ods-ksmutil-path', default='ods-ksmutil', help='path of ods-ksmutil')
+parser.add_argument('--ods-config', help='config file for OpenDNSSEC')
+parser.add_argument('--action', required=True, choices=['sync', 'seen'], help='What to do: sync DS or acknoledge (seen) DS')
+parser.add_argument('--domain-name', '-d', nargs='*', default=[], help='Domain name to treat : default => list of all ready DS')
+parser.add_argument('--dry-run', '-n',  action='store_true', default=False, help='Domain name to treat : default => list of all ready DS')
+####### sync DS
+parser.add_argument('--public-key', '-k',nargs='*', help='Domain name DNSSEC public key in same order of --domain-name')
+parser.add_argument('--flags-key', '-f', nargs='*', help='Domain name DNSSEC flags of key in same order of --domain-name')
+parser.add_argument('--algorithm-key', '-g', nargs='*', help='Domain name DNSSEC algorithm of key in same order of --domain-name')
+parser.add_argument('--tag-key', '-t', nargs='*', help='Domain name DNSSEC tag of key in same order of --domain-name')
+parser.add_argument('--parse-stdin', '-i', action='store_true', default=False, help='parse stdin to get value of key to update')
+###### seen DS
+parser.add_argument('--master-dns-server', '-m', nargs='*', help='Master DNS server to ask for DS records : default 8.8.8.8; 8.8.4.4')
+args = parser.parse_args()
+dargs=vars(args)
+# Request all creds needed for all action : no way to choose some credential
+default_creds=[
+        {'method': 'GET', 'path': '/domain'},  # listing domains managed by OVH
+        {'method': 'GET', 'path': '/domain/*/dsRecord'}, # getting ids of DS records
+        {'method': 'GET', 'path': '/domain/*/dsRecord/*'}, # getting info about DS records
+        {'method': 'POST', 'path': '/domain/*/dsRecord'} # adding DS records 
+        ]
+
+access_rules = {
+    'sync' : default_creds
+}
+
+
+# Convert sha alg int to str
+
+shaalg = { 1 : 'sha1', 2: 'sha256' }
+
+# RegExp to parse
+
+regexport=re.compile('^([^ ]+?)\.?(?: |\t)*[0-9]+(?: |\t)*IN(?: |\t)*DNSKEY(?: |\t)*([0-9]+)(?: |\t)*([0-9]+)(?: |\t)*([0-9]+)(?: |\t)*([^ ]+)(?: |\t)*;\{id = ([0-9]+) \(([a-zA-Z]+)\), size = ([0-9]+)b\}.*$',re.M)
+regexportds=re.compile('^([^ ]+?)\.?(?: |\t)*[0-9]+(?: |\t)*IN(?: |\t)*DS(?: |\t)*([0-9]+)(?: |\t)*([0-9]+)(?: |\t)*([0-9]+)(?: |\t)*([a-fA-F0-9]+).*$',re.M)
+regkey=re.compile('^([^ ]+?)\.?(?: |\t)*(KSK|ZSK)(?: |\t)*([a-zA-Z]+)(?: |\t)*((?:[0-9-]+ [0-9:]+)|waiting for ds-seen)(?: |\t)*\(([a-zA-Z]+)\)(?: |\t)*([0-9]+)(?: |\t)*([0-9]+)(?: |\t)*([0-9a-fA-F]+)(?: |\t)*([^ \t]+)(?: |\t)*([0-9]+)$',re.M)
+regds=re.compile('^([^ ;]+?)\.?(?: |\t)*[0-9]+(?: |\t)*IN(?: |\t)*DS(?: |\t)*([0-9]+)(?: |\t)*([0-9]+)(?: |\t)*([0-9]+)(?: |\t)*([a-fA-F0-9 ]+)$',re.M)
+regremovespace=re.compile(' +')
+
+# create logger
+logger = logging.getLogger('OVH-DS')
+logger.setLevel(logging.DEBUG)
+
+# create console handler and set level to debug
+ch = logging.StreamHandler()
+ch.setLevel(logging.DEBUG)
+
+# create formatter
+formatter = logging.Formatter('%(asctime)s - %(name)s - %(levelname)s - %(message)s')
+
+# add formatter to ch
+ch.setFormatter(formatter)
+
+# add ch to logger
+logger.addHandler(ch)
+
+
+def get_auth_client(**kwargs):
+    cArgs={k: v for k, v in kwargs.items() if k in ["application_key","application_secret","consumer_key"]}
+    client = ovh.Client(endpoint='ovh-eu',**cArgs)
+    action= kwargs.get('action','clean')
+
+    if client._consumer_key is None:
+        # Request token
+        validation = client.request_consumerkey(access_rules[action])
+        
+
+        print("Please visit %s to authenticate" % validation['validationUrl'])
+        input("and press Enter to continue...")
+
+        # Print nice welcome message
+        print("your 'consumerKey' is '%s'" % validation['consumerKey'])
+        print("Please add the key to this script config variable")
+        ConsumerKey=validation['consumerKey']
+        
+        cArgs['consumer_key']=ConsumerKey
+
+        client = ovh.Client(endpoint='ovh-eu',**cArgs)
+    return client
+
+def export_keystate(**kwargs):
+
+    # Get config file
+    configfile=kwargs.get("ods_config",None)    
+    if configfile is not None:
+        ods_conf=" --config " + configfile
+    else:
+        ods_conf=""
+
+    # Construct ods_ksmutil path with conf name
+    ods=kwargs.get('ods_ksmutil_path') + ods_conf
+
+    # Get key list
+    (errno,output)=subprocess.getstatusoutput(ods + ' key list --verbose')
+    if errno != 0:
+        logger.critical("ODS-KSMUTIL ERROR %d: %s",errno,output)
+        exit(1)
+    ods_keylist=regkey.findall(output)
+
+    # Construct dict of key
+    dKey={}
+    for (domain,keyType,state,nextTrans,nextState,keySize,alg,ckaid,repoHSM,tag) in ods_keylist:
+        if nextTrans == 'waiting for ds-seen':
+            nT=None
+            waiting=True
+        else:
+            nT=time.strptime(nextTrans, '%Y-%m-%d %H:%M:%S')
+            waiting=False
+        try:
+            dKey[domain][int(tag)]={'type': keyType.lower(), 'state': state.lower(), 'nextTrans': nT, 'nextState': nextState.lower(),
+                                 'size': int(keySize), 'ckaid': int(ckaid,16), 'repo': repoHSM, 'algorithm': int(alg), 'waiting': waiting}
+        except KeyError:
+            dKey[domain]={ int(tag): {'type': keyType.lower(), 'state': state.lower(), 'nextTrans': nT, 'nextState': nextState.lower(),
+                                 'size': int(keySize), 'ckaid': int(ckaid,16), 'repo': repoHSM, 'algorithm': int(alg), 'waiting': waiting} }
+    
+    # Get keys info
+    (errno,output)=subprocess.getstatusoutput(ods + ' key export')
+    if errno != 0:
+        logger.critical("ODS-KSMUTIL ERROR %d: %s",errno,output)
+        exit(1)
+    ods_keyexport=regexport.findall(output)
+    
+    for (domain,flags,protocol,algorithm,pubKey,keytag,keyType,size) in ods_keyexport:
+        if domain in dKey:
+            iKeyTag=int(keytag)
+            if iKeyTag in dKey[domain]:
+                iAlg=int(algorithm)
+                iSize=int(size)
+                lKeyType=keyType.lower()
+                if iAlg != dKey[domain][iKeyTag]['algorithm']:
+                    logger.error("Algorithm differ from key list ( %d != %d ) for tag %d of key in domain %s : skipping", iAlg, dKey[domain][iKeyTag]['algorithm'], iKeyTag, domain)
+                if iSize != dKey[domain][iKeyTag]['size']:
+                    logger.error("Size differ from key list ( %d != %d ) for tag %d of key in domain %s : skipping", iSize, dKey[domain][iKeyTag]['size'], iKeyTag, domain)
+                if lKeyType != dKey[domain][iKeyTag]['type']:
+                    logger.error("Type differ from key list ( %s != %s ) for tag %d of key in domain %s : skipping", lKeyType, dKey[domain][iKeyTag]['type'], iKeyTag, domain)
+                dKey[domain][iKeyTag].update({'flags': int(flags), 'protocol': int(protocol), 'pubKey': pubKey, 'calc-id': calc_keyid(flags,protocol, algorithm ,pubKey),'calc-ds': calc_ds(domain, flags, protocol, algorithm, pubKey)})
+            else:
+                logger.error("Tag %d of key in domain %s not in key list : skipping", iKeyTag, domain)
+        else:
+            logger.error("Domain %s not in key list : skipping", domain)
+
+    # Get keys info for DS
+    (errno,output)=subprocess.getstatusoutput(ods + ' key export --ds')
+    if errno != 0:
+        logger.critical("ODS-KSMUTIL ERROR %d: %s",errno,output)
+        exit(1)
+    ods_keyexportds=regexportds.findall(output)
+    
+    for (domain,keytag,algorithm,shaid,shasum) in ods_keyexportds:
+        if domain in dKey:
+            iKeyTag=int(keytag)
+            if iKeyTag in dKey[domain]:
+                iAlg=int(algorithm)
+                if iAlg != dKey[domain][iKeyTag]['algorithm']:
+                    logger.error("Algorithm differ from key list ( %d != %d ) for tag %d of key in domain %s : skipping (DS)", iAlg, dKey[domain][iKeyTag]['algorithm'], iKeyTag, domain)
+                shas=dKey[domain][iKeyTag].get('ds',{})
+                shas[int(shaid)]=shasum
+                dKey[domain][iKeyTag]['ds']=shas
+            else:
+                logger.error("Tag %d of key in domain %s not in key list : skipping DS", iKeyTag, domain)
+        else:
+            logger.error("Domain %s not in key list : skipping DS", domain)
+
+    return dKey
+
+def get_ds(domains,servers=['8.8.8.8', '8.8.4.4']):
+    ret={}
+    for domain in domains:
+        for server in servers:
+            # Get keys DS from parent DNS server
+            logger.debug('Ask DS for %s to %s',domain,server)
+            (errno,output)=subprocess.getstatusoutput('dig %s DS @%s' % (domain,server))
+            if errno != 0:
+                logger.critical("DIG ERROR %d: %s",errno,output)
+                break
+#            logger.debug('Server response : %d / %s',errno,output)
+            ds=regds.findall(output)
+            for (domain,keytag,algorithm,shaid,shasum) in ds:
+                iKeyTag=int(keytag)
+                ishaid=int(shaid)
+                d=ret.get(domain,{})
+                k=d.get(iKeyTag,{})
+                shaok=regremovespace.sub('',shasum).lower()
+                if ishaid in k:
+                    if shaok != k[ishaid]:
+                        logger.error("Get another DS for the same key domain=%s tag=%d proto=%d ( %s / %s)",domain,iKeyTag,ishaid,k[ishaid],shaok)
+                else:
+                    k[ishaid]=shaok
+                    d[iKeyTag]=k
+                    ret[domain]=d
+            if len(ds) > 0:
+                break
+    return ret
+                
+def seen_ds(domain,ckaid,**kwargs):
+    # Get config file
+    configfile=kwargs.get("ods_config",None)    
+    if configfile is not None:
+        ods_conf=" --config " + configfile
+    else:
+        ods_conf=""
+
+    # Construct ods_ksmutil path with conf name
+    ods=kwargs.get('ods_ksmutil_path') + ods_conf
+
+    # Get key list
+    (errno,output)=subprocess.getstatusoutput(ods + ' key ds-seen --zone %s --cka_id %x' % (domain,ckaid))
+    if errno != 0:
+        logger.critical("ODS-KSMUTIL ERROR %d: %s",errno,output)
+    return (errno,output)
+
+import pprint
+pp = pprint.PrettyPrinter(indent=4)
+
+# domain we want to modify
+domains=dargs['domain_name']
+# For now, juste use stdin ODS to get domain name for triggering DS update
+if dargs['parse_stdin']:
+    reg=re.compile('^([^ ]+?)\.?(?: |\t)*[0-9]+(?: |\t)*IN(?: |\t)*DNSKEY(?: |\t)*([0-9]+)(?: |\t)*([0-9]+)(?: |\t)*([0-9]+)(?: |\t)*([^ ]+)(?: |\t)*?.*$',re.M)
+    stdin_keyupdate=reg.findall("".join(sys.stdin))
+    stdin_domain=[domain for (domain,flags,protocol,algorithm,pubKey) in stdin_keyupdate if domain not in domains]
+    domains.extend(stdin_domain)
+
+keys=export_keystate(**dargs)
+#pp.pprint(keys)
+
+#
+#pp.pprint(ds)
+
+#exit(0)
+#domains=get_domains_keys(keys, **dargs)
+client=get_auth_client(**dargs)
+
+
+# Get keys from OVH
+if dargs['action'] in ['sync']:
+    # Domain managed by OVH 
+    ovh_domains=client.get('/domain')
+    if len(domains) > 0:
+        ovh_domains=[domain for domain in ovh_domains if domain in domains]
+
+    ovh_idkeys={ domain : client.get('/domain/%s/dsRecord' % domain) for domain in ovh_domains}
+    ovh_keyinfo={ domain : { idkey : client.get('/domain/%s/dsRecord/%d' % (domain,idkey)) for idkey in ids } for domain, ids in ovh_idkeys.items()}
+    ovh_keytag = { domain : { ovhkey['tag'] : idkey for idkey,ovhkey in ids.items() } for domain,ids in ovh_keyinfo.items()}
+
+result={}
+
+if dargs['action'] == 'sync':
+    # compute list of key by domain we want to update : stdin_domain should be not in sync => Update = True
+    Update={ domain: domain in stdin_domain or len(frozenset(ovh_keytag[domain].keys()) ^ frozenset([tag for tag,infokey in infos.items() if (infokey['state'] == 'active' or infokey['state'] == 'ready') and infokey['type'] == 'ksk' ])) > 0 for domain,infos in keys.items() if domain in ovh_domains}
+
+    usefull_keys= { domain : [ dict(tag=keytag, **infokey) for keytag,infokey in infos.items() if (infokey['state'] == 'active' or infokey['state'] == 'ready') and infokey['type'] == 'ksk' ] for domain,infos in keys.items() if domain in ovh_domains and Update[domain] }
+
+    for domain,ovhkeys in usefull_keys.items():
+        try:
+            addkeys=[{'algorithm' : ovhkey['algorithm'], 'flags' : ovhkey['flags'], 'tag': ovhkey['tag'], 'publicKey': ovhkey['pubKey']} for ovhkey in ovhkeys]
+            if dargs['dry_run']:
+                logger.info('Execution of POST to OVH API : /domain/%s/dsRecord => keys=%s',domain,addkeys)
+            else:
+                result[domain]=client.post('/domain/%s/dsRecord' % domain, keys=addkeys)
+        except Exception as e:
+            logger.error("domain %s failed with keys=%s (%s)" ,domain,addkeys, e)
+elif dargs['action'] == 'seen':
+    # compute list of key by domain we want to see in master zone
+
+    usefull_keys= { 
+        domain : { 
+            ds : infokey['ckaid'] 
+            for keytag,infokey in infos.items() if infokey['waiting'] and infokey['type'] == 'ksk' and infokey['state'] == 'ready' 
+            for shaid,ds in infokey['ds'].items() 
+            } 
+        for domain,infos in keys.items() 
+        if domains is None or domain in domains
+        }
+
+    # get master DNS server : default Google DNS recurse server
+    dns_server=dargs.get('master_dns_server')
+    if dns_server is None:
+        dns_server=['8.8.8.8','8.8.4.4']
+    # get list of DS in master zone
+    dss=get_ds([d for d,k in usefull_keys.items() if len(k)> 0],dns_server)
+    dss_list ={ 
+        domain : 
+        [ ds 
+          for infokey in infos.values() 
+          for ds in infokey.values() 
+          ] 
+        for domain,infos in dss.items()
+        }
+
+    # foreach domain, search ds (ODS) in ds (Master DNS server) and execute ds-seen if found in it
+    for domain,dss in usefull_keys.items():
+        if len(dss)> 0:
+            retd={}
+            if domain not in dss_list:
+                logger.info('No DS in master DNS server for %s : skipping',domain)
+            else:
+                for ds,ckaid in dss.items():
+                    if ckaid not in retd and ds in dss_list[domain]:
+                        ret=None
+                        if dargs['dry_run']:
+                            logger.info('Execution of ODS-KSMUTIL DS-SEEN %s : (%s / %x )',ds,domain,ckaid)
+                            ret='DRY RUN'
+                        else:
+                            ret=seen_ds(domain,ckaid,**dargs)
+                        retd[ckaid]={ 'ds': ds , 'res' : ret }
+            result[domain]=retd
+        else:
+            logger.info('No DS record to see for %s : skipping',domain)
+else:
+    pass
+    
+logger.info("Result of action: %s",result)

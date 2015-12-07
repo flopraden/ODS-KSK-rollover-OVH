@@ -15,6 +15,7 @@ def calc_keyid(flags, protocol, algorithm, st):
                       Spaces are removed.
   @return The key tag
   """
+  return 0
   # Remove spaces and create the wire format
   st0=st.replace(' ', '')
   st2=struct.pack('!HBB', int(flags), int(protocol), int(algorithm))
@@ -22,11 +23,12 @@ def calc_keyid(flags, protocol, algorithm, st):
 
   # Calculate the tag
   cnt=0
-  for idx in xrange(len(st2)):
+  print(st2)
+  for idx in range(len(st2)):
     s=struct.unpack('B', st2[idx])[0]
     if (idx % 2) == 0:
       cnt+=s<<8
-  else:
+    else:
       cnt+=s
 
   ret=((cnt & 0xFFFF) + (cnt>>16)) & 0xFFFF
@@ -43,7 +45,7 @@ def calc_ds(owner, flags, protocol, algorithm, st):
                       Spaces are removed.
   @return A dictionary of hashes where the key is the hashing algorithm.
   """
-
+  return {'sha1': "",'sha256': ''}
   # Remove spaces and create the wire format
   st0=st.replace(' ', '')
   st2=struct.pack('!HBB', int(flags), int(protocol), int(algorithm))
