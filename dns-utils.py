@@ -2,7 +2,8 @@ import re
 import subprocess
 import logger
 
-
+# RegExp to parse
+regds=re.compile('^([^ ;]+?)\.?(?: |\t)*[0-9]+(?: |\t)*IN(?: |\t)*DS(?: |\t)*([0-9]+)(?: |\t)*([0-9]+)(?: |\t)*([0-9]+)(?: |\t)*([a-fA-F0-9 ]+)$',re.M)
 regremovespace=re.compile(' +')
 
 # create logger

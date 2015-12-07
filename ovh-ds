@@ -60,14 +60,6 @@ access_rules = {
 
 
 
-# RegExp to parse
-
-regexport=re.compile('^([^ ]+?)\.?(?: |\t)*[0-9]+(?: |\t)*IN(?: |\t)*DNSKEY(?: |\t)*([0-9]+)(?: |\t)*([0-9]+)(?: |\t)*([0-9]+)(?: |\t)*([^ ]+)(?: |\t)*;\{id = ([0-9]+) \(([a-zA-Z]+)\), size = ([0-9]+)b\}.*$',re.M)
-regexportds=re.compile('^([^ ]+?)\.?(?: |\t)*[0-9]+(?: |\t)*IN(?: |\t)*DS(?: |\t)*([0-9]+)(?: |\t)*([0-9]+)(?: |\t)*([0-9]+)(?: |\t)*([a-fA-F0-9]+).*$',re.M)
-regkey=re.compile('^([^ ]+?)\.?(?: |\t)*(KSK|ZSK)(?: |\t)*([a-zA-Z]+)(?: |\t)*((?:[0-9-]+ [0-9:]+)|waiting for ds-seen)(?: |\t)*\(([a-zA-Z]+)\)(?: |\t)*([0-9]+)(?: |\t)*([0-9]+)(?: |\t)*([0-9a-fA-F]+)(?: |\t)*([^ \t]+)(?: |\t)*([0-9]+)$',re.M)
-regds=re.compile('^([^ ;]+?)\.?(?: |\t)*[0-9]+(?: |\t)*IN(?: |\t)*DS(?: |\t)*([0-9]+)(?: |\t)*([0-9]+)(?: |\t)*([0-9]+)(?: |\t)*([a-fA-F0-9 ]+)$',re.M)
-
-
 # create logger
 logger = logging.getLogger('OVH-DS')
 logger.setLevel(logging.DEBUG)
